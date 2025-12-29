@@ -1,0 +1,32 @@
+[project]
+name = "nfcorpus-finetuning"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ir-datasets>=0.5.11",
+    "protobuf>=6.33.2",
+    "ruff>=0.14.10",
+    "sentence-transformers>=5.2.0",
+    "sentencepiece>=0.2.1",
+    "transformers>=4.57.3",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # PEP8 style issues (e.g., whitespace, line length)
+    "F",   # Pyflakes: undefined variables, imports, etc.
+    "B",   # flake8-bugbear: common bugs and code smells
+    "UP",  # pyupgrade: modernize Python syntax
+    "D",   # pydocstyle: docstring conventions
+    "I",   # isort: import sorting
+    "N"    # pep8-naming: naming conventions
+]
+ignore = ["D107"]
+
+[tool.ruff.pydocstyle]
+convention = "google"

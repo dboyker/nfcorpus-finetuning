@@ -1,15 +1,18 @@
 """Training script."""
+import random
+
 import ir_datasets
 from datasets import Dataset
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.losses import MultipleNegativesRankingLoss
+from transformers import EarlyStoppingCallback
 
 SEED = 42
-MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-ARGS = SentenceTransformerTrainingArguments(
+MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+DEFAULT_ARGS = dict(
     output_dir="models/test",
-    num_train_epochs=3,
+    num_train_epochs=10,
     per_device_train_batch_size=64,
     per_device_eval_batch_size=64,
     warmup_ratio=0.1,
@@ -17,61 +20,72 @@ ARGS = SentenceTransformerTrainingArguments(
     weight_decay=0.01,
     fp16=True,
     bf16=False,
+    # batch_sampler=CustomBatchSampler,
+    metric_for_best_model="eval_loss",
     eval_strategy="steps",
-    eval_steps=100,
-    logging_steps=100,
+    eval_steps=10,
+    logging_steps=10,
     disable_tqdm=True,
-)
+    )
+EARLY_STOPPING_PATIENCE = 5
+EARLY_STOPPING_THRESHOLD = 0.1
+MIN_RELEVANCE = 2
+random.seed(SEED)
 
 
-def load_data(split) -> tuple[dict, dict, dict]:
+def load_nfcorpus(split: str) -> tuple[dict, dict, dict]:
     """Load data from NFCorpus.
     
     :param split: train / dev / test
     :return: 3 dictionnaries containing the queries, the docs, and the relevant linked between them.
     """
     dataset = ir_datasets.load(f"nfcorpus/{split}")
-    query_to_text = {q.query_id: q.all for q in dataset.queries_iter()}
-    doc_to_text = {d.doc_id: d.abstract for d in dataset.docs_iter()}
-    query_to_labels = {}
-    used_docs = []
+    queries = {q.query_id: q.all for q in dataset.queries_iter()}
+    docs = {d.doc_id: d.abstract for d in dataset.docs_iter()}
+    qrels = {}
     for qrel in dataset.qrels_iter():
-        if qrel.relevance >= 2:
-            if qrel.doc_id not in used_docs:
-                used_docs.append(qrel.doc_id)
-            query_to_labels.setdefault(qrel.query_id, []).append(qrel.doc_id)
-    """
-    print(len(query_to_text.keys()))
-    print(len(doc_to_text.keys()))
-    print(len(query_to_labels))
-    print(len(used_docs))
-    """
-    return query_to_text, doc_to_text, query_to_labels
+        if qrel.relevance >= MIN_RELEVANCE:
+            qrels.setdefault(qrel.query_id, []).append(qrel.doc_id)
+    return queries, docs, qrels
 
 
-def build_dataset(query_to_text, doc_to_text, query_to_labels) -> Dataset:
+def build_dataset(queries, docs, qrels) -> Dataset:
     """Build a HF dataset.
+
+    @TODO: the dataset includes the same queries several times. This could mess up with MultipleNegativesRankingLoss.
     
-    :param query_to_text: a dict containing the query ids and their corresponding text
-    :param doc_to_text: a dict containing the doc ids and their corresponding text
-    :param query_to_labels: a dict containing the query ids and their relevant doc ids
+    :param queries: a dict containing the query ids and their corresponding text
+    :param docs: a dict containing the doc ids and their corresponding text
+    :param qrels: a dict containing the query ids and their relevant doc ids
     """
-    queries = [query_to_text[q] for q, docs in query_to_labels.items() for _ in docs]
-    docs = [doc_to_text[d] for _, docs in query_to_labels.items() for d in docs]
-    ds = Dataset.from_dict({"queries": queries, "docs": docs}).shuffle(seed=SEED)
+    query_texts = []
+    doc_texts = []
+    for qid, doc_ids in qrels.items():
+            q_text = queries.get(qid)
+            if not q_text:
+                continue
+            for doc_id in doc_ids:
+                d_text = docs.get(doc_id)
+                if d_text:
+                    query_texts.append(q_text)
+                    doc_texts.append(d_text)
+            
+    ds = Dataset.from_dict({"query": query_texts, "doc": doc_texts}).shuffle(seed=SEED)
     return ds
 
 
-def main() -> None:
+def main(override_args={}) -> SentenceTransformer:
     """Perform training."""
     # Fetch data
-    query_to_text, doc_to_text, query_to_labels = load_data(split="train")
-    query_to_text_dev, doc_to_text_dev, query_to_labels_dev = load_data(split="dev")
+    if override_args is None:
+        override_args = {}
+    query_to_text, doc_to_text, query_to_labels = load_nfcorpus(split="train")
+    query_to_text_dev, doc_to_text_dev, query_to_labels_dev = load_nfcorpus(split="dev")
 
     # Build datasets
     ds = build_dataset(query_to_text, doc_to_text, query_to_labels)
     ds_dev = build_dataset(query_to_text_dev, doc_to_text_dev, query_to_labels_dev)
-
+    
     # Evaluator
     dev_evaluator = InformationRetrievalEvaluator(
         queries=query_to_text_dev,
@@ -80,16 +94,28 @@ def main() -> None:
         name="dev",
     )
 
+    # Model
+    model = SentenceTransformer(MODEL)
+
     #Training
+    args = DEFAULT_ARGS | override_args
     trainer = SentenceTransformerTrainer(
-        model=MODEL,
-        args=ARGS,
+        model=model,
+        args=SentenceTransformerTrainingArguments(**args),
         train_dataset=ds,
         eval_dataset=ds_dev,
-        loss=MultipleNegativesRankingLoss(MODEL),
+        loss=MultipleNegativesRankingLoss(model),
         evaluator=dev_evaluator,
+        callbacks=[
+            EarlyStoppingCallback(
+                early_stopping_patience=EARLY_STOPPING_PATIENCE,
+                early_stopping_threshold=EARLY_STOPPING_THRESHOLD,
+                )
+            ]
         )
     trainer.train()
+
+    return model
 
 
 if __name__ == "__main__":

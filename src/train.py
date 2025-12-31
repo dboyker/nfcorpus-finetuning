@@ -3,16 +3,22 @@ import random
 
 import ir_datasets
 from datasets import Dataset
-from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+from sentence_transformers import (
+    SentenceTransformer,
+    SentenceTransformerTrainer,
+    SentenceTransformerTrainingArguments,
+)
 from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.losses import MultipleNegativesRankingLoss
 from transformers import EarlyStoppingCallback
+
+import batch_sampler
 
 SEED = 42
 MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_ARGS = dict(
     output_dir="models/test",
-    num_train_epochs=10,
+    num_train_epochs=5,
     per_device_train_batch_size=64,
     per_device_eval_batch_size=64,
     warmup_ratio=0.1,
@@ -20,15 +26,16 @@ DEFAULT_ARGS = dict(
     weight_decay=0.01,
     fp16=True,
     bf16=False,
-    # batch_sampler=CustomBatchSampler,
+    batch_sampler=batch_sampler.CustomNoDuplicatesBatchSampler,
     metric_for_best_model="eval_loss",
     eval_strategy="steps",
-    eval_steps=10,
-    logging_steps=10,
+    eval_steps=100,
+    logging_steps=100,
     disable_tqdm=True,
+    load_best_model_at_end=True,
     )
 EARLY_STOPPING_PATIENCE = 5
-EARLY_STOPPING_THRESHOLD = 0.1
+EARLY_STOPPING_THRESHOLD = 0.01
 MIN_RELEVANCE = 2
 random.seed(SEED)
 
@@ -69,7 +76,6 @@ def build_dataset(queries, docs, qrels) -> Dataset:
                 if d_text:
                     query_texts.append(q_text)
                     doc_texts.append(d_text)
-            
     ds = Dataset.from_dict({"query": query_texts, "doc": doc_texts}).shuffle(seed=SEED)
     return ds
 
@@ -111,7 +117,7 @@ def main(override_args={}) -> SentenceTransformer:
                 early_stopping_patience=EARLY_STOPPING_PATIENCE,
                 early_stopping_threshold=EARLY_STOPPING_THRESHOLD,
                 )
-            ]
+            ],
         )
     trainer.train()
 

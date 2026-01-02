@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import torch
 from datasets import Dataset
-from sentence_transformers import NoDuplicatesBatchSampler
+from sentence_transformers.sampler import NoDuplicatesBatchSampler
 
 
 class CustomNoDuplicatesBatchSampler(NoDuplicatesBatchSampler):

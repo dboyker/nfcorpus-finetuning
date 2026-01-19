@@ -1,0 +1,6 @@
+seed: 42
+model: "sentence-transformers/all-MiniLM-L6-v2"
+sentence_transformers_args: DEFAULT_ARGS
+early_stopping_patience: 5
+early_stopping_threshold: 0.01
+min_relevance: 2

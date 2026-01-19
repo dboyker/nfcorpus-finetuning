@@ -51,11 +51,9 @@ def build_dataset(queries, docs, qrels) -> Dataset:
     return ds
 
 
-def train(config: dict, override_sentence_transformers_args: dict = None) -> SentenceTransformer:
+def train(config: dict) -> SentenceTransformer:
     """Perform training."""
     # Fetch data
-    if override_sentence_transformers_args is None:
-        override_sentence_transformers_args = {}
     query_to_text, doc_to_text, query_to_labels = load_nfcorpus(split="train", min_relevance=config["min_relevance"])
     query_to_text_dev, doc_to_text_dev, query_to_labels_dev = load_nfcorpus(split="dev", min_relevance=config["min_relevance"])
 
@@ -75,7 +73,7 @@ def train(config: dict, override_sentence_transformers_args: dict = None) -> Sen
     model = SentenceTransformer(config["model"])
 
     #Training
-    args = config["sentence_transformers_args"] | override_sentence_transformers_args
+    args = config["sentence_transformers_args"]
     trainer = SentenceTransformerTrainer(
         model=model,
         args=SentenceTransformerTrainingArguments(**args),

@@ -12,7 +12,7 @@ uv sync
 ```
 
 ## Usage
-1. Configure the training. The default config is in `./config.yml`. 
+1. Configure the training. The default config is in `./config.yml`. The field "sentence_transformers_args" refers to the python args defined in `src/sentence_transformers_args.py`
 
 
 2. Train the model.

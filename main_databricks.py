@@ -13,7 +13,8 @@
 
 path = "./config.yml"
 config = load_config(path)
-print(config)
 model_name = "all-MiniLM-L6-v2-nfcorpus"
-model = train(config=config, override_sentence_transformers_args=dict(output_dir=f"fine_tuned_models/{model_name}"))
+config["sentence_transformers_args"]["output_dir"] = f"fine_tuned_models/{model_name}"
+model = train(config=config)
 model.save(f"/dbfs/saved_models/{model_name}")
+

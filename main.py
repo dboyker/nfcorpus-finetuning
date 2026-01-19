@@ -1,18 +1,21 @@
-# Databricks notebook source
-# MAGIC %pip install ./
-# MAGIC %restart_python
+import argparse
 
-# COMMAND ----------
+from src.misc.config import load_config
+from src.train import train
 
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
-# MAGIC from src import train
 
-# COMMAND ----------
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="./config.yml",
+        help="Path to config file"
+    )
+    return parser.parse_args()
 
-model_name = "all-MiniLM-L6-v2-nfcorpus"
-model = train.main(override_args=dict(output_dir=f"fine_tuned_models/{model_name}"))
-model.save(f"/dbfs/saved_models/{model_name}")
 
-# COMMAND ----------
-
+if __name__ == "__main__":
+    args = parse_args()
+    config = load_config(args.config)
+    train(config)

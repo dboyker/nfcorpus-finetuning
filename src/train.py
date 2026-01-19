@@ -1,6 +1,4 @@
 """Training script."""
-import random
-
 import ir_datasets
 from datasets import Dataset
 from sentence_transformers import (
@@ -12,35 +10,8 @@ from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.losses import MultipleNegativesRankingLoss
 from transformers import EarlyStoppingCallback
 
-import batch_sampler
 
-SEED = 42
-MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_ARGS = dict(
-    output_dir="models/test",
-    num_train_epochs=5,
-    per_device_train_batch_size=64,
-    per_device_eval_batch_size=64,
-    warmup_ratio=0.1,
-    learning_rate=3e-5,
-    weight_decay=0.01,
-    fp16=True,
-    bf16=False,
-    batch_sampler=batch_sampler.CustomNoDuplicatesBatchSampler,
-    metric_for_best_model="eval_loss",
-    eval_strategy="steps",
-    eval_steps=100,
-    logging_steps=100,
-    disable_tqdm=True,
-    load_best_model_at_end=True,
-    )
-EARLY_STOPPING_PATIENCE = 5
-EARLY_STOPPING_THRESHOLD = 0.01
-MIN_RELEVANCE = 2
-random.seed(SEED)
-
-
-def load_nfcorpus(split: str) -> tuple[dict, dict, dict]:
+def load_nfcorpus(split: str, min_relevance: int) -> tuple[dict, dict, dict]:
     """Load data from NFCorpus.
     
     :param split: train / dev / test
@@ -51,7 +22,7 @@ def load_nfcorpus(split: str) -> tuple[dict, dict, dict]:
     docs = {d.doc_id: d.abstract for d in dataset.docs_iter()}
     qrels = {}
     for qrel in dataset.qrels_iter():
-        if qrel.relevance >= MIN_RELEVANCE:
+        if qrel.relevance >= min_relevance:
             qrels.setdefault(qrel.query_id, []).append(qrel.doc_id)
     return queries, docs, qrels
 
@@ -76,17 +47,15 @@ def build_dataset(queries, docs, qrels) -> Dataset:
                 if d_text:
                     query_texts.append(q_text)
                     doc_texts.append(d_text)
-    ds = Dataset.from_dict({"query": query_texts, "doc": doc_texts}).shuffle(seed=SEED)
+    ds = Dataset.from_dict({"query": query_texts, "doc": doc_texts})
     return ds
 
 
-def main(override_args={}) -> SentenceTransformer:
+def train(config: dict) -> SentenceTransformer:
     """Perform training."""
     # Fetch data
-    if override_args is None:
-        override_args = {}
-    query_to_text, doc_to_text, query_to_labels = load_nfcorpus(split="train")
-    query_to_text_dev, doc_to_text_dev, query_to_labels_dev = load_nfcorpus(split="dev")
+    query_to_text, doc_to_text, query_to_labels = load_nfcorpus(split="train", min_relevance=config["min_relevance"])
+    query_to_text_dev, doc_to_text_dev, query_to_labels_dev = load_nfcorpus(split="dev", min_relevance=config["min_relevance"])
 
     # Build datasets
     ds = build_dataset(query_to_text, doc_to_text, query_to_labels)
@@ -101,10 +70,10 @@ def main(override_args={}) -> SentenceTransformer:
     )
 
     # Model
-    model = SentenceTransformer(MODEL)
+    model = SentenceTransformer(config["model"])
 
     #Training
-    args = DEFAULT_ARGS | override_args
+    args = config["sentence_transformers_args"]
     trainer = SentenceTransformerTrainer(
         model=model,
         args=SentenceTransformerTrainingArguments(**args),
@@ -114,15 +83,11 @@ def main(override_args={}) -> SentenceTransformer:
         evaluator=dev_evaluator,
         callbacks=[
             EarlyStoppingCallback(
-                early_stopping_patience=EARLY_STOPPING_PATIENCE,
-                early_stopping_threshold=EARLY_STOPPING_THRESHOLD,
+                early_stopping_patience=config["early_stopping_patience"],
+                early_stopping_threshold=config["early_stopping_threshold"],
                 )
             ],
         )
     trainer.train()
 
     return model
-
-
-if __name__ == "__main__":
-    main()

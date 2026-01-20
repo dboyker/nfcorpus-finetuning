@@ -10,6 +10,8 @@ from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from sentence_transformers.losses import MultipleNegativesRankingLoss
 from transformers import EarlyStoppingCallback
 
+from src import batch_sampler
+
 
 def load_nfcorpus(split: str, min_relevance: int) -> tuple[dict, dict, dict]:
     """Load data from NFCorpus.
@@ -74,6 +76,7 @@ def train(config: dict) -> SentenceTransformer:
 
     #Training
     args = config["sentence_transformers_args"]
+    args["batch_sampler"] = batch_sampler.CustomNoDuplicatesBatchSampler  # @TODO: ideally, this should be a configuration
     trainer = SentenceTransformerTrainer(
         model=model,
         args=SentenceTransformerTrainingArguments(**args),
